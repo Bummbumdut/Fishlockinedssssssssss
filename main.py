@@ -8,6 +8,7 @@ from datetime import datetime
 import json
 import os
 from ai_image import analyze_fishing_spot
+from ai_image_gemini import analyze_fishing_spot_gemini, analyze_fishing_spot_huggingface
 from catch_logger import CatchLogger
 from forecast import get_fishing_forecast
 
@@ -82,7 +83,21 @@ def read_root():
         <div class="endpoint">
             <span class="method">POST</span>
             <strong>/analyze</strong>
-            <p>Upload a fishing spot image for AI analysis</p>
+            <p>Upload a fishing spot image for AI analysis (OpenRouter)</p>
+            <small>Accepts: multipart/form-data with image file</small>
+        </div>
+        
+        <div class="endpoint">
+            <span class="method">POST</span>
+            <strong>/analyze-gemini</strong>
+            <p>Upload a fishing spot image for AI analysis (Google Gemini)</p>
+            <small>Accepts: multipart/form-data with image file</small>
+        </div>
+        
+        <div class="endpoint">
+            <span class="method">POST</span>
+            <strong>/analyze-hf</strong>
+            <p>Upload a fishing spot image for AI analysis (Hugging Face)</p>
             <small>Accepts: multipart/form-data with image file</small>
         </div>
         
@@ -106,7 +121,7 @@ def read_root():
             <small>Accepts: JSON with location details</small>
         </div>
         
-        <p><strong>Status:</strong> ✅ OpenRouter AI integration active</p>
+        <p><strong>Status:</strong> ✅ Multiple AI providers available</p>
     </body>
     </html>
     """
@@ -114,7 +129,7 @@ def read_root():
 @app.post("/analyze")
 async def analyze_image(file: UploadFile = File(...)):
     """
-    Analyze a fishing spot image using AI
+    Analyze a fishing spot image using OpenRouter AI
     """
     try:
         # Validate file type
@@ -134,13 +149,92 @@ async def analyze_image(file: UploadFile = File(...)):
         return JSONResponse(content={
             "success": True,
             "recommendation": analysis,
-            "filename": file.filename
+            "filename": file.filename,
+            "provider": "OpenRouter"
         })
         
     except HTTPException:
         raise
     except Exception as e:
         print(f"Error in analyze endpoint: {str(e)}")
+        return JSONResponse(
+            status_code=500, 
+            content={
+                "success": False,
+                "error": f"Analysis failed: {str(e)}"
+            }
+        )
+
+@app.post("/analyze-gemini")
+async def analyze_image_gemini(file: UploadFile = File(...)):
+    """
+    Analyze a fishing spot image using Google Gemini AI
+    """
+    try:
+        # Validate file type
+        if not file.content_type.startswith('image/'):
+            raise HTTPException(status_code=400, detail="File must be an image")
+        
+        # Read image bytes
+        image_bytes = await file.read()
+        
+        # Validate file size (max 10MB)
+        if len(image_bytes) > 10 * 1024 * 1024:
+            raise HTTPException(status_code=400, detail="Image too large (max 10MB)")
+        
+        # Analyze the image
+        analysis = analyze_fishing_spot_gemini(image_bytes)
+        
+        return JSONResponse(content={
+            "success": True,
+            "recommendation": analysis,
+            "filename": file.filename,
+            "provider": "Google Gemini"
+        })
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Error in analyze-gemini endpoint: {str(e)}")
+        return JSONResponse(
+            status_code=500, 
+            content={
+                "success": False,
+                "error": f"Analysis failed: {str(e)}"
+            }
+        )
+
+@app.post("/analyze-hf")
+async def analyze_image_huggingface(file: UploadFile = File(...)):
+    """
+    Analyze a fishing spot image using Hugging Face AI
+    """
+    try:
+        # Validate file type
+        if not file.content_type.startswith('image/'):
+            raise HTTPException(status_code=400, detail="File must be an image")
+        
+        # Read image bytes
+        image_bytes = await file.read()
+        
+        # Validate file size (max 10MB)
+        if len(image_bytes) > 10 * 1024 * 1024:
+            raise HTTPException(status_code=400, detail="Image too large (max 10MB)")
+        
+        # Analyze the image
+        analysis = analyze_fishing_spot_huggingface(image_bytes)
+        
+        return JSONResponse(content={
+            "success": True,
+            "recommendation": analysis,
+            "filename": file.filename,
+            "provider": "Hugging Face"
+        })
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Error in analyze-hf endpoint: {str(e)}")
         return JSONResponse(
             status_code=500, 
             content={
