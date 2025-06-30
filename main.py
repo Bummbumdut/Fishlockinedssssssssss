@@ -8,7 +8,7 @@ from datetime import datetime
 import json
 import os
 from ai_image import analyze_fishing_spot
-from ai_image_gemini import analyze_fishing_spot_gemini, analyze_fishing_spot_huggingface
+from ai_image_gemini import analyze_fishing_spot_gemini, analyze_fishing_spot_huggingface, get_usage_stats
 from catch_logger import CatchLogger
 from forecast import get_fishing_forecast
 
@@ -41,64 +41,88 @@ class ForecastRequest(BaseModel):
 
 @app.get("/", response_class=HTMLResponse)
 def read_root():
-    return """
+    # Get current usage stats
+    try:
+        stats = get_usage_stats()
+        usage_display = f"Daily: {stats['daily']['used']}/{stats['daily']['limit']} ({stats['daily']['percentage']:.1f}%)"
+    except:
+        usage_display = "Usage tracking unavailable"
+    
+    return f"""
     <!DOCTYPE html>
     <html>
     <head>
         <title>Fishing Assistant API</title>
         <style>
-            body { 
+            body {{ 
                 font-family: Arial, sans-serif; 
                 max-width: 800px; 
                 margin: 0 auto; 
                 padding: 20px;
                 background-color: #1a1a1a;
                 color: #ffffff;
-            }
-            .endpoint { 
+            }}
+            .endpoint {{ 
                 border: 1px solid #333; 
                 padding: 15px; 
                 margin: 10px 0; 
                 border-radius: 8px;
                 background-color: #2a2a2a;
-            }
-            .method { 
+            }}
+            .method {{ 
                 background-color: #ff6b35; 
                 color: white; 
                 padding: 4px 8px; 
                 border-radius: 4px; 
                 font-size: 12px;
                 font-weight: bold;
-            }
-            h1 { color: #ff6b35; }
-            h2 { color: #ffffff; }
+            }}
+            .usage {{
+                background-color: #2a4a2a;
+                border: 1px solid #4a6a4a;
+                padding: 10px;
+                border-radius: 8px;
+                margin: 15px 0;
+            }}
+            h1 {{ color: #ff6b35; }}
+            h2 {{ color: #ffffff; }}
         </style>
     </head>
     <body>
         <h1>🎣 FishCast API</h1>
-        <p>AI-powered fishing assistant backend</p>
+        <p>AI-powered fishing assistant backend with optimized Google AI Studio integration</p>
+        
+        <div class="usage">
+            <strong>📊 Google AI Studio Usage:</strong> {usage_display}
+        </div>
         
         <h2>Available Endpoints:</h2>
         
         <div class="endpoint">
             <span class="method">POST</span>
-            <strong>/analyze</strong>
-            <p>Upload a fishing spot image for AI analysis (OpenRouter)</p>
+            <strong>/analyze-smart</strong>
+            <p>🎯 Smart AI analysis - Uses Google Gemini (best quality) with automatic fallback</p>
             <small>Accepts: multipart/form-data with image file</small>
         </div>
         
         <div class="endpoint">
             <span class="method">POST</span>
             <strong>/analyze-gemini</strong>
-            <p>Upload a fishing spot image for AI analysis (Google Gemini)</p>
+            <p>🧠 Google Gemini AI analysis (premium quality, limited quota)</p>
             <small>Accepts: multipart/form-data with image file</small>
         </div>
         
         <div class="endpoint">
             <span class="method">POST</span>
             <strong>/analyze-hf</strong>
-            <p>Upload a fishing spot image for AI analysis (Hugging Face)</p>
+            <p>🔄 Hugging Face fallback analysis (unlimited, basic quality)</p>
             <small>Accepts: multipart/form-data with image file</small>
+        </div>
+        
+        <div class="endpoint">
+            <span class="method">GET</span>
+            <strong>/usage-stats</strong>
+            <p>📊 Get current API usage statistics</p>
         </div>
         
         <div class="endpoint">
@@ -121,15 +145,15 @@ def read_root():
             <small>Accepts: JSON with location details</small>
         </div>
         
-        <p><strong>Status:</strong> ✅ Multiple AI providers available</p>
+        <p><strong>Status:</strong> ✅ Smart AI routing with usage optimization</p>
     </body>
     </html>
     """
 
-@app.post("/analyze")
-async def analyze_image(file: UploadFile = File(...)):
+@app.post("/analyze-smart")
+async def analyze_image_smart(file: UploadFile = File(...)):
     """
-    Analyze a fishing spot image using OpenRouter AI
+    Smart AI analysis - tries Google Gemini first, falls back to Hugging Face if quota exceeded
     """
     try:
         # Validate file type
@@ -143,20 +167,27 @@ async def analyze_image(file: UploadFile = File(...)):
         if len(image_bytes) > 10 * 1024 * 1024:
             raise HTTPException(status_code=400, detail="Image too large (max 10MB)")
         
-        # Analyze the image
-        analysis = analyze_fishing_spot(image_bytes)
+        # Try Google Gemini first
+        analysis = analyze_fishing_spot_gemini(image_bytes)
+        
+        # If quota exceeded, automatically fall back to Hugging Face
+        if "Usage limit reached" in analysis or "Rate limit" in analysis:
+            analysis = analyze_fishing_spot_huggingface(image_bytes)
+            provider = "Hugging Face (Fallback)"
+        else:
+            provider = "Google Gemini"
         
         return JSONResponse(content={
             "success": True,
             "recommendation": analysis,
             "filename": file.filename,
-            "provider": "OpenRouter"
+            "provider": provider
         })
         
     except HTTPException:
         raise
     except Exception as e:
-        print(f"Error in analyze endpoint: {str(e)}")
+        print(f"Error in smart analyze endpoint: {str(e)}")
         return JSONResponse(
             status_code=500, 
             content={
@@ -166,9 +197,9 @@ async def analyze_image(file: UploadFile = File(...)):
         )
 
 @app.post("/analyze-gemini")
-async def analyze_image_gemini(file: UploadFile = File(...)):
+async def analyze_image_gemini_direct(file: UploadFile = File(...)):
     """
-    Analyze a fishing spot image using Google Gemini AI
+    Direct Google Gemini AI analysis (respects usage limits)
     """
     try:
         # Validate file type
@@ -205,9 +236,9 @@ async def analyze_image_gemini(file: UploadFile = File(...)):
         )
 
 @app.post("/analyze-hf")
-async def analyze_image_huggingface(file: UploadFile = File(...)):
+async def analyze_image_huggingface_direct(file: UploadFile = File(...)):
     """
-    Analyze a fishing spot image using Hugging Face AI
+    Direct Hugging Face AI analysis (unlimited fallback)
     """
     try:
         # Validate file type
@@ -242,6 +273,21 @@ async def analyze_image_huggingface(file: UploadFile = File(...)):
                 "error": f"Analysis failed: {str(e)}"
             }
         )
+
+@app.get("/usage-stats")
+async def get_ai_usage_stats():
+    """Get current AI API usage statistics"""
+    try:
+        stats = get_usage_stats()
+        return JSONResponse(content={
+            "success": True,
+            "usage": stats
+        })
+    except Exception as e:
+        return JSONResponse(content={
+            "success": False,
+            "error": str(e)
+        })
 
 @app.post("/catches")
 async def log_catch(catch_entry: CatchEntry):

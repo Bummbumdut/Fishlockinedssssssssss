@@ -1,6 +1,6 @@
 import React, { useState, useRef } from 'react'
 import { motion } from 'framer-motion'
-import { Camera, Upload, Zap, MapPin, Eye, AlertCircle } from 'lucide-react'
+import { Camera, Upload, Zap, MapPin, Eye, AlertCircle, BarChart3 } from 'lucide-react'
 
 export default function SpotAnalyzer() {
   const [selectedImage, setSelectedImage] = useState<string | null>(null)
@@ -8,6 +8,8 @@ export default function SpotAnalyzer() {
   const [analysis, setAnalysis] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [usageStats, setUsageStats] = useState<any>(null)
+  const [provider, setProvider] = useState<string>('')
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   const handleImageUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -37,7 +39,19 @@ export default function SpotAnalyzer() {
     }
   }
 
-  const analyzeSpot = async () => {
+  const fetchUsageStats = async () => {
+    try {
+      const response = await fetch('http://localhost:8000/usage-stats')
+      const result = await response.json()
+      if (result.success) {
+        setUsageStats(result.usage)
+      }
+    } catch (error) {
+      console.error('Failed to fetch usage stats:', error)
+    }
+  }
+
+  const analyzeSpot = async (endpoint: string = 'analyze-smart') => {
     if (!selectedFile) return
     
     setLoading(true)
@@ -47,7 +61,7 @@ export default function SpotAnalyzer() {
       const formData = new FormData()
       formData.append('file', selectedFile)
       
-      const response = await fetch('http://localhost:8000/analyze', {
+      const response = await fetch(`http://localhost:8000/${endpoint}`, {
         method: 'POST',
         body: formData,
       })
@@ -56,6 +70,9 @@ export default function SpotAnalyzer() {
       
       if (result.success) {
         setAnalysis(result.recommendation)
+        setProvider(result.provider)
+        // Fetch updated usage stats
+        await fetchUsageStats()
       } else {
         setError(result.error || 'Analysis failed')
       }
@@ -72,10 +89,16 @@ export default function SpotAnalyzer() {
     setSelectedFile(null)
     setAnalysis(null)
     setError(null)
+    setProvider('')
     if (fileInputRef.current) {
       fileInputRef.current.value = ''
     }
   }
+
+  // Fetch usage stats on component mount
+  React.useEffect(() => {
+    fetchUsageStats()
+  }, [])
 
   return (
     <div className="max-w-4xl mx-auto space-y-8">
@@ -92,6 +115,37 @@ export default function SpotAnalyzer() {
           on where to cast, what bait to use, and the best fishing techniques.
         </p>
       </motion.div>
+
+      {/* Usage Stats */}
+      {usageStats && (
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.1 }}
+          className="card p-4"
+        >
+          <div className="flex items-center justify-between">
+            <div className="flex items-center space-x-3">
+              <BarChart3 className="h-5 w-5 text-accent-orange" />
+              <span className="text-white font-medium">Google AI Usage Today</span>
+            </div>
+            <div className="text-right">
+              <div className="text-white font-bold">
+                {usageStats.daily.used}/{usageStats.daily.limit}
+              </div>
+              <div className="text-sm text-gray-400">
+                {usageStats.daily.percentage.toFixed(1)}% used
+              </div>
+            </div>
+          </div>
+          <div className="mt-2 bg-gray-700 rounded-full h-2">
+            <div 
+              className="bg-accent-orange rounded-full h-2 transition-all duration-300"
+              style={{ width: `${Math.min(usageStats.daily.percentage, 100)}%` }}
+            />
+          </div>
+        </motion.div>
+      )}
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
         {/* Image Upload Section */}
@@ -150,33 +204,52 @@ export default function SpotAnalyzer() {
               </div>
             )}
             
-            <div className="flex space-x-3">
+            <div className="space-y-3">
               <button
                 onClick={() => fileInputRef.current?.click()}
-                className="btn-secondary flex-1"
+                className="btn-secondary w-full"
               >
                 <Camera className="h-4 w-4 mr-2" />
                 Choose Photo
               </button>
               
               {selectedImage && (
-                <button
-                  onClick={analyzeSpot}
-                  disabled={loading}
-                  className="btn-primary flex-1 disabled:opacity-50"
-                >
-                  {loading ? (
-                    <>
-                      <div className="animate-spin h-4 w-4 mr-2 border-2 border-white border-t-transparent rounded-full" />
-                      Analyzing...
-                    </>
-                  ) : (
-                    <>
-                      <Zap className="h-4 w-4 mr-2" />
-                      Analyze Spot
-                    </>
-                  )}
-                </button>
+                <div className="grid grid-cols-1 gap-2">
+                  <button
+                    onClick={() => analyzeSpot('analyze-smart')}
+                    disabled={loading}
+                    className="btn-primary disabled:opacity-50"
+                  >
+                    {loading ? (
+                      <>
+                        <div className="animate-spin h-4 w-4 mr-2 border-2 border-white border-t-transparent rounded-full" />
+                        Analyzing...
+                      </>
+                    ) : (
+                      <>
+                        <Zap className="h-4 w-4 mr-2" />
+                        Smart Analysis (Best Quality)
+                      </>
+                    )}
+                  </button>
+                  
+                  <div className="grid grid-cols-2 gap-2">
+                    <button
+                      onClick={() => analyzeSpot('analyze-gemini')}
+                      disabled={loading}
+                      className="btn-secondary text-xs disabled:opacity-50"
+                    >
+                      Gemini Direct
+                    </button>
+                    <button
+                      onClick={() => analyzeSpot('analyze-hf')}
+                      disabled={loading}
+                      className="btn-secondary text-xs disabled:opacity-50"
+                    >
+                      HF Fallback
+                    </button>
+                  </div>
+                </div>
               )}
             </div>
           </div>
@@ -189,9 +262,16 @@ export default function SpotAnalyzer() {
           transition={{ delay: 0.4 }}
           className="card p-6"
         >
-          <h2 className="text-xl font-semibold text-white mb-4">
-            AI Analysis Results
-          </h2>
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-xl font-semibold text-white">
+              AI Analysis Results
+            </h2>
+            {provider && (
+              <span className="text-xs bg-accent-orange px-2 py-1 rounded-full text-white">
+                {provider}
+              </span>
+            )}
+          </div>
           
           {!analysis && !loading ? (
             <div className="text-center py-12">
@@ -213,7 +293,7 @@ export default function SpotAnalyzer() {
               animate={{ opacity: 1, y: 0 }}
               className="space-y-4"
             >
-              <div className="bg-gray-700/50 rounded-xl p-4 border border-gray-600">
+              <div className="bg-gray-700/50 rounded-xl p-4 border border-gray-600 max-h-96 overflow-y-auto">
                 <div className="whitespace-pre-line text-sm text-gray-300 leading-relaxed">
                   {analysis}
                 </div>
